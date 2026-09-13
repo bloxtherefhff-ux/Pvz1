@@ -1,0 +1,1375 @@
+name: Build The Last Floor APK
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ------------------------------------------------------------
+      # 1. Checkout repository
+      # ------------------------------------------------------------
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+
+      # ------------------------------------------------------------
+      # 2. Java 17
+      # ------------------------------------------------------------
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+
+      # ------------------------------------------------------------
+      # 3. Android SDK
+      # ------------------------------------------------------------
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ""
+
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -e
+
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-37" \
+            "build-tools;36.0.0"
+
+
+      # ------------------------------------------------------------
+      # 4. Create project
+      # ------------------------------------------------------------
+
+      - name: Create Android project
+        shell: bash
+        run: |
+
+          set -e
+
+          mkdir -p app/src/main/java/com/thelastfloor/game
+          mkdir -p app/src/main/res/values
+
+
+      # ------------------------------------------------------------
+      # 5. settings.gradle
+      # ------------------------------------------------------------
+
+          cat > settings.gradle <<'EOF'
+
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "TheLastFloor"
+
+          include(":app")
+
+          EOF
+
+
+      # ------------------------------------------------------------
+      # 6. Root build.gradle
+      # ------------------------------------------------------------
+
+          cat > build.gradle <<'EOF'
+
+          plugins {
+              id 'com.android.application' version '9.4.0' apply false
+          }
+
+          EOF
+
+
+      # ------------------------------------------------------------
+      # 7. gradle.properties
+      # ------------------------------------------------------------
+
+          cat > gradle.properties <<'EOF'
+
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+
+          EOF
+
+
+      # ------------------------------------------------------------
+      # 8. app/build.gradle
+      # ------------------------------------------------------------
+
+          cat > app/build.gradle <<'EOF'
+
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+
+              namespace 'com.thelastfloor.game'
+
+              compileSdk 37
+
+              defaultConfig {
+
+                  applicationId 'com.thelastfloor.game'
+
+                  minSdk 23
+
+                  targetSdk 37
+
+                  versionCode 1
+
+                  versionName '0.1.0'
+              }
+
+              buildTypes {
+
+                  debug {
+                      minifyEnabled false
+                  }
+
+                  release {
+                      minifyEnabled false
+                  }
+              }
+          }
+
+          EOF
+
+
+      # ------------------------------------------------------------
+      # 9. AndroidManifest.xml
+      # ------------------------------------------------------------
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+
+          <?xml version="1.0" encoding="utf-8"?>
+
+          <manifest
+              xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <application
+                  android:theme="@style/AppTheme"
+                  android:label="The Last Floor"
+                  android:allowBackup="false"
+                  android:supportsRtl="true">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:screenOrientation="landscape"
+                      android:exported="true">
+
+                      <intent-filter>
+
+                          <action
+                              android:name="android.intent.action.MAIN" />
+
+                          <category
+                              android:name="android.intent.category.LAUNCHER" />
+
+                      </intent-filter>
+
+                  </activity>
+
+              </application>
+
+          </manifest>
+
+          EOF
+
+
+      # ------------------------------------------------------------
+      # 10. Theme
+      # ------------------------------------------------------------
+
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+
+          <?xml version="1.0" encoding="utf-8"?>
+
+          <resources>
+
+              <style
+                  name="AppTheme"
+                  parent="android:style/Theme.Material.Light.NoActionBar">
+
+                  <item name="android:fontFamily">sans</item>
+
+                  <item name="android:windowFullscreen">true</item>
+
+                  <item name="android:navigationBarColor">
+                      #000000
+                  </item>
+
+                  <item name="android:statusBarColor">
+                      #000000
+                  </item>
+
+              </style>
+
+          </resources>
+
+          EOF
+
+
+      # ------------------------------------------------------------
+      # 11. MainActivity.java
+      # ------------------------------------------------------------
+
+          cat > app/src/main/java/com/thelastfloor/game/MainActivity.java <<'EOF'
+
+          package com.thelastfloor.game;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.graphics.Canvas;
+          import android.graphics.Color;
+          import android.graphics.Paint;
+          import android.graphics.PointF;
+          import android.view.MotionEvent;
+          import android.view.View;
+
+          import java.util.ArrayList;
+
+
+          public class MainActivity extends Activity {
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+
+                  super.onCreate(savedInstanceState);
+
+                  getWindow().setFlags(
+                          android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                          android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN
+                  );
+
+                  setContentView(new GameView(this));
+              }
+
+
+              static class GameView extends View {
+
+                  private final Paint paint =
+                          new Paint(Paint.ANTI_ALIAS_FLAG);
+
+                  private final Paint outline =
+                          new Paint(Paint.ANTI_ALIAS_FLAG);
+
+
+                  /*
+                   * Player
+                   */
+
+                  private float playerX = 640.0f;
+
+                  private float playerY = 360.0f;
+
+
+                  /*
+                   * Joystick
+                   */
+
+                  private final float joystickX = 130.0f;
+
+                  private final float joystickY = 560.0f;
+
+                  private float stickX = joystickX;
+
+                  private float stickY = joystickY;
+
+
+                  private boolean joystickHeld = false;
+
+                  private boolean running = false;
+
+
+                  /*
+                   * Helicopter
+                   */
+
+                  private int helicopterParts = 0;
+
+                  private final ArrayList<PointF> parts =
+                          new ArrayList<>();
+
+                  private final boolean[] collected =
+                          new boolean[6];
+
+
+                  /*
+                   * Monster state
+                   */
+
+                  private boolean hasMeat = false;
+
+                  private boolean hasToy = false;
+
+                  private boolean toyPlaced = false;
+
+
+                  private String message =
+                          "Find the helicopter parts.";
+
+                  private long messageUntil = 0L;
+
+
+                  /*
+                   * Timers
+                   */
+
+                  private long lastFrame =
+                          System.currentTimeMillis();
+
+
+                  GameView(android.content.Context context) {
+
+                      super(context);
+
+                      setBackgroundColor(
+                              Color.rgb(5, 5, 8)
+                      );
+
+
+                      parts.add(
+                              new PointF(250, 170)
+                      );
+
+                      parts.add(
+                              new PointF(1030, 170)
+                      );
+
+                      parts.add(
+                              new PointF(250, 360)
+                      );
+
+                      parts.add(
+                              new PointF(1030, 360)
+                      );
+
+                      parts.add(
+                              new PointF(250, 550)
+                      );
+
+                      parts.add(
+                              new PointF(1030, 550)
+                      );
+
+
+                      outline.setStyle(
+                              Paint.Style.STROKE
+                      );
+
+                      outline.setStrokeWidth(3);
+                  }
+
+
+                  @Override
+                  protected void onDraw(Canvas canvas) {
+
+                      long now =
+                              System.currentTimeMillis();
+
+                      float delta =
+                              Math.min(
+                                      0.05f,
+                                      (now - lastFrame) / 1000.0f
+                              );
+
+                      lastFrame = now;
+
+
+                      update(delta);
+
+                      drawHotel(canvas);
+
+                      drawParts(canvas);
+
+                      drawPlayer(canvas);
+
+                      drawUI(canvas);
+
+
+                      postInvalidateDelayed(16);
+                  }
+
+
+                  /*
+                   * -------------------------
+                   * GAME UPDATE
+                   * -------------------------
+                   */
+
+                  private void update(float delta) {
+
+                      updatePlayer(delta);
+
+                      updateMessage();
+                  }
+
+
+                  private void updateMessage() {
+
+                      /*
+                       * Message system intentionally
+                       * doesn't replace the actual
+                       * objective permanently.
+                       */
+                  }
+
+
+                  /*
+                   * -------------------------
+                   * PLAYER
+                   * -------------------------
+                   */
+
+                  private void updatePlayer(
+                          float delta
+                  ) {
+
+                      if (!joystickHeld) {
+                          return;
+                      }
+
+
+                      float dx =
+                              stickX - joystickX;
+
+                      float dy =
+                              stickY - joystickY;
+
+
+                      float length =
+                              (float)Math.sqrt(
+                                      dx * dx + dy * dy
+                              );
+
+
+                      if (length <= 8.0f) {
+                          return;
+                      }
+
+
+                      dx /= length;
+
+                      dy /= length;
+
+
+                      float speed =
+                              running
+                                      ? 220.0f
+                                      : 120.0f;
+
+
+                      playerX +=
+                              dx * speed * delta;
+
+                      playerY +=
+                              dy * speed * delta;
+
+
+                      playerX =
+                              Math.max(
+                                      45,
+                                      Math.min(
+                                              getWidth() - 45,
+                                              playerX
+                                      )
+                              );
+
+
+                      playerY =
+                              Math.max(
+                                      120,
+                                      Math.min(
+                                              getHeight() - 45,
+                                              playerY
+                                      )
+                              );
+
+
+                      checkNearbyObjects();
+                  }
+
+
+                  /*
+                   * -------------------------
+                   * INTERACTION
+                   * -------------------------
+                   */
+
+                  private void checkNearbyObjects() {
+
+                      /*
+                       * Helicopter parts
+                       */
+
+                      for (int i = 0;
+                           i < parts.size();
+                           i++) {
+
+                          if (collected[i]) {
+                              continue;
+                          }
+
+
+                          PointF part =
+                                  parts.get(i);
+
+
+                          float dx =
+                                  playerX - part.x;
+
+                          float dy =
+                                  playerY - part.y;
+
+
+                          float distanceSquared =
+                                  dx * dx +
+                                  dy * dy;
+
+
+                          if (distanceSquared <
+                                  45 * 45) {
+
+                              collected[i] = true;
+
+                              helicopterParts++;
+
+
+                              showMessage(
+                                      "Helicopter part found!"
+                              );
+
+                              break;
+                          }
+                      }
+                  }
+
+
+                  /*
+                   * -------------------------
+                   * HOTEL
+                   * -------------------------
+                   */
+
+                  private void drawHotel(
+                          Canvas canvas
+                  ) {
+
+                      int width =
+                              getWidth();
+
+                      int height =
+                              getHeight();
+
+
+                      /*
+                       * Floor
+                       */
+
+                      paint.setColor(
+                              Color.rgb(
+                                      18,
+                                      17,
+                                      22
+                              )
+                      );
+
+                      canvas.drawRect(
+                              0,
+                              0,
+                              width,
+                              height,
+                              paint
+                      );
+
+
+                      /*
+                       * Central hallway
+                       */
+
+                      paint.setColor(
+                              Color.rgb(
+                                      30,
+                                      29,
+                                      36
+                              )
+                      );
+
+                      canvas.drawRect(
+                              width / 2.0f - 90,
+                              70,
+                              width / 2.0f + 90,
+                              height,
+                              paint
+                      );
+
+
+                      /*
+                       * Stores
+                       *
+                       * Every store intentionally
+                       * has TWO doors.
+                       */
+
+                      for (
+                              int y = 90;
+                              y < height - 60;
+                              y += 150
+                      ) {
+
+                          drawStore(
+                                  canvas,
+                                  55,
+                                  y,
+                                  width / 2.0f - 115,
+                                  y + 125
+                          );
+
+
+                          drawStore(
+                                  canvas,
+                                  width / 2.0f + 115,
+                                  y,
+                                  width - 55,
+                                  y + 125
+                          );
+                      }
+
+
+                      /*
+                       * Emergency lights
+                       */
+
+                      paint.setColor(
+                              Color.rgb(
+                                      120,
+                                      10,
+                                      18
+                              )
+                      );
+
+
+                      canvas.drawRect(
+                              width / 2.0f - 70,
+                              82,
+                              width / 2.0f - 48,
+                              90,
+                              paint
+                      );
+
+
+                      canvas.drawRect(
+                              width / 2.0f + 48,
+                              82,
+                              width / 2.0f + 70,
+                              90,
+                              paint
+                      );
+
+
+                      /*
+                       * Roof
+                       */
+
+                      paint.setColor(
+                              Color.rgb(
+                                      90,
+                                      90,
+                                      96
+                              )
+                      );
+
+
+                      canvas.drawRect(
+                              width / 2.0f - 50,
+                              20,
+                              width / 2.0f + 50,
+                              55,
+                              paint
+                      );
+
+
+                      paint.setColor(
+                              Color.WHITE
+                      );
+
+                      paint.setTextAlign(
+                              Paint.Align.CENTER
+                      );
+
+                      paint.setTextSize(18);
+
+
+                      canvas.drawText(
+                              "ROOF",
+                              width / 2.0f,
+                              44,
+                              paint
+                      );
+                  }
+
+
+                  private void drawStore(
+                          Canvas canvas,
+                          float left,
+                          float top,
+                          float right,
+                          float bottom
+                  ) {
+
+                      outline.setColor(
+                              Color.rgb(
+                                      70,
+                                      67,
+                                      75
+                              )
+                      );
+
+
+                      canvas.drawRect(
+                              left,
+                              top,
+                              right,
+                              bottom,
+                              outline
+                      );
+
+
+                      /*
+                       * LEFT DOOR
+                       */
+
+                      paint.setColor(
+                              Color.rgb(
+                                      95,
+                                      69,
+                                      56
+                              )
+                      );
+
+
+                      canvas.drawRect(
+                              left - 3,
+                              top + 37,
+                              left + 9,
+                              top + 88,
+                              paint
+                      );
+
+
+                      /*
+                       * RIGHT DOOR
+                       */
+
+                      canvas.drawRect(
+                              right - 9,
+                              top + 37,
+                              right + 3,
+                              top + 88,
+                              paint
+                      );
+
+
+                      /*
+                       * Shelves
+                       */
+
+                      paint.setColor(
+                              Color.rgb(
+                                      48,
+                                      45,
+                                      50
+                              )
+                      );
+
+
+                      float center =
+                              (left + right) / 2.0f;
+
+
+                      canvas.drawRect(
+                              center - 25,
+                              top + 20,
+                              center + 25,
+                              bottom - 20,
+                              paint
+                      );
+                  }
+
+
+                  /*
+                   * -------------------------
+                   * PARTS
+                   * -------------------------
+                   */
+
+                  private void drawParts(
+                          Canvas canvas
+                  ) {
+
+                      for (
+                              int i = 0;
+                              i < parts.size();
+                              i++
+                      ) {
+
+                          if (collected[i]) {
+                              continue;
+                          }
+
+
+                          PointF part =
+                                  parts.get(i);
+
+
+                          paint.setColor(
+                                  Color.rgb(
+                                          190,
+                                          165,
+                                          35
+                                  )
+                          );
+
+
+                          canvas.drawCircle(
+                                  part.x,
+                                  part.y,
+                                  10,
+                                  paint
+                          );
+                      }
+                  }
+
+
+                  /*
+                   * -------------------------
+                   * PLAYER
+                   * -------------------------
+                   */
+
+                  private void drawPlayer(
+                          Canvas canvas
+                  ) {
+
+                      paint.setColor(
+                              Color.rgb(
+                                      220,
+                                      220,
+                                      225
+                              )
+                      );
+
+
+                      canvas.drawCircle(
+                              playerX,
+                              playerY,
+                              15,
+                              paint
+                      );
+
+
+                      outline.setColor(
+                              Color.WHITE
+                      );
+
+
+                      canvas.drawCircle(
+                              playerX,
+                              playerY,
+                              15,
+                              outline
+                      );
+                  }
+
+
+                  /*
+                   * -------------------------
+                   * UI
+                   * -------------------------
+                   */
+
+                  private void drawUI(
+                          Canvas canvas
+                  ) {
+
+                      int width =
+                              getWidth();
+
+                      int height =
+                              getHeight();
+
+
+                      /*
+                       * Header
+                       */
+
+                      paint.setColor(
+                              Color.argb(
+                                      215,
+                                      8,
+                                      8,
+                                      12
+                              )
+                      );
+
+
+                      canvas.drawRoundRect(
+                              20,
+                              20,
+                              520,
+                              105,
+                              14,
+                              14,
+                              paint
+                      );
+
+
+                      paint.setColor(
+                              Color.WHITE
+                      );
+
+
+                      paint.setTextAlign(
+                              Paint.Align.LEFT
+                      );
+
+
+                      paint.setTextSize(21);
+
+
+                      canvas.drawText(
+                              "THE LAST FLOOR",
+                              35,
+                              48,
+                              paint
+                      );
+
+
+                      paint.setTextSize(14);
+
+
+                      String objective;
+
+
+                      if (helicopterParts == 6) {
+
+                          objective =
+                                  "All parts found. Reach the ROOF.";
+
+                      } else {
+
+                          objective =
+                                  "Find helicopter parts.";
+                      }
+
+
+                      canvas.drawText(
+                              objective,
+                              35,
+                              77,
+                              paint
+                      );
+
+
+                      /*
+                       * Parts
+                       */
+
+                      paint.setTextAlign(
+                              Paint.Align.RIGHT
+                      );
+
+                      paint.setTextSize(18);
+
+
+                      canvas.drawText(
+                              "PARTS: " +
+                                      helicopterParts +
+                                      "/6",
+                              width - 25,
+                              44,
+                              paint
+                      );
+
+
+                      /*
+                       * Joystick
+                       */
+
+                      paint.setColor(
+                              Color.argb(
+                                      95,
+                                      190,
+                                      190,
+                                      200
+                              )
+                      );
+
+
+                      canvas.drawCircle(
+                              joystickX,
+                              joystickY,
+                              75,
+                              paint
+                      );
+
+
+                      paint.setColor(
+                              Color.argb(
+                                      175,
+                                      220,
+                                      220,
+                                      225
+                              )
+                      );
+
+
+                      canvas.drawCircle(
+                              stickX,
+                              stickY,
+                              30,
+                              paint
+                      );
+
+
+                      /*
+                       * RUN
+                       */
+
+                      paint.setColor(
+                              Color.argb(
+                                      150,
+                                      140,
+                                      20,
+                                      25
+                              )
+                      );
+
+
+                      canvas.drawRoundRect(
+                              width - 180,
+                              height - 145,
+                              width - 30,
+                              height - 70,
+                              16,
+                              16,
+                              paint
+                      );
+
+
+                      paint.setColor(
+                              Color.WHITE
+                      );
+
+
+                      paint.setTextAlign(
+                              Paint.Align.CENTER
+                      );
+
+
+                      paint.setTextSize(22);
+
+
+                      canvas.drawText(
+                              "RUN",
+                              width - 105,
+                              height - 100,
+                              paint
+                      );
+
+
+                      /*
+                       * Temporary message
+                       */
+
+                      if (System.currentTimeMillis()
+                              < messageUntil) {
+
+                          paint.setColor(
+                                  Color.argb(
+                                          225,
+                                          5,
+                                          5,
+                                          7
+                                  )
+                          );
+
+
+                          canvas.drawRoundRect(
+                                  width / 2.0f - 220,
+                                  height - 100,
+                                  width / 2.0f + 220,
+                                  height - 52,
+                                  12,
+                                  12,
+                                  paint
+                          );
+
+
+                          paint.setColor(
+                                  Color.WHITE
+                          );
+
+
+                          paint.setTextSize(16);
+
+
+                          canvas.drawText(
+                                  message,
+                                  width / 2.0f,
+                                  height - 70,
+                                  paint
+                          );
+                      }
+                  }
+
+
+                  /*
+                   * -------------------------
+                   * TOUCH
+                   * -------------------------
+                   */
+
+                  @Override
+                  public boolean onTouchEvent(
+                          MotionEvent event
+                  ) {
+
+                      float x =
+                              event.getX();
+
+                      float y =
+                              event.getY();
+
+
+                      switch (
+                              event.getActionMasked()
+                      ) {
+
+                          case MotionEvent.ACTION_DOWN:
+
+                              if (
+                                      x <
+                                              getWidth() * 0.40f
+                                              &&
+                                      y >
+                                              getHeight() * 0.55f
+                              ) {
+
+                                  joystickHeld =
+                                          true;
+
+                                  updateJoystick(
+                                          x,
+                                          y
+                                  );
+
+                              } else if (
+                                      x >
+                                              getWidth() - 200
+                                              &&
+                                      y >
+                                              getHeight() - 170
+                              ) {
+
+                                  running =
+                                          true;
+                              }
+
+                              return true;
+
+
+                          case MotionEvent.ACTION_MOVE:
+
+                              if (joystickHeld) {
+
+                                  updateJoystick(
+                                          x,
+                                          y
+                                  );
+                              }
+
+                              return true;
+
+
+                          case MotionEvent.ACTION_UP:
+
+                          case MotionEvent.ACTION_CANCEL:
+
+                              joystickHeld =
+                                      false;
+
+                              running =
+                                      false;
+
+                              stickX =
+                                      joystickX;
+
+                              stickY =
+                                      joystickY;
+
+                              return true;
+                      }
+
+
+                      return true;
+                  }
+
+
+                  private void updateJoystick(
+                          float x,
+                          float y
+                  ) {
+
+                      float dx =
+                              x - joystickX;
+
+                      float dy =
+                              y - joystickY;
+
+
+                      float length =
+                              (float)Math.sqrt(
+                                      dx * dx +
+                                      dy * dy
+                              );
+
+
+                      float maxDistance =
+                              68.0f;
+
+
+                      if (
+                              length >
+                                      maxDistance
+                      ) {
+
+                          dx =
+                                  dx /
+                                          length *
+                                          maxDistance;
+
+                          dy =
+                                  dy /
+                                          length *
+                                          maxDistance;
+                      }
+
+
+                      stickX =
+                              joystickX + dx;
+
+                      stickY =
+                              joystickY + dy;
+                  }
+
+
+                  /*
+                   * -------------------------
+                   * MESSAGE
+                   * -------------------------
+                   */
+
+                  private void showMessage(
+                          String text
+                  ) {
+
+                      message =
+                              text;
+
+                      messageUntil =
+                              System.currentTimeMillis()
+                                      + 3000L;
+                  }
+              }
+          }
+
+          EOF
+
+
+      # ------------------------------------------------------------
+      # 12. Setup Gradle
+      # ------------------------------------------------------------
+
+      - name: Setup Gradle 9.6
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.6.0"
+
+
+      # ------------------------------------------------------------
+      # 13. Build
+      # ------------------------------------------------------------
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -e
+
+          gradle \
+            --no-daemon \
+            --stacktrace \
+            :app:assembleDebug
+
+
+      # ------------------------------------------------------------
+      # 14. Verify APK actually exists
+      # ------------------------------------------------------------
+
+      - name: Verify APK
+        shell: bash
+        run: |
+
+          set -e
+
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -f "$APK" ]; then
+              echo "ERROR: APK was not created."
+              exit 1
+          fi
+
+          echo "APK successfully created:"
+          ls -lh "$APK"
+
+
+      # ------------------------------------------------------------
+      # 15. Upload APK
+      # ------------------------------------------------------------
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: The-Last-Floor-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
