@@ -10,7 +10,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
 
     steps:
       - name: Checkout
@@ -67,15 +67,12 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-
-      - name: Accept licenses + install platform
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+        with:
+          packages: 'tools platform-tools platforms;android-34 build-tools;34.0.0'
 
       - name: Create Capacitor project files
         run: |
-          cat > package.json << 'EOF'
+          cat > package.json << 'EOP'
           {
             "name": "skyline-hotel",
             "version": "1.0.0",
@@ -86,9 +83,9 @@ jobs:
               "@capacitor/cli": "^6.1.2"
             }
           }
-          EOF
+          EOP
 
-          cat > capacitor.config.json << 'EOF'
+          cat > capacitor.config.json << 'EOC'
           {
             "appId": "com.skyline.hotel",
             "appName": "Skyline Hotel",
@@ -97,7 +94,7 @@ jobs:
               "androidScheme": "https"
             }
           }
-          EOF
+          EOC
 
           echo "✅ Project files created"
 
@@ -111,7 +108,7 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug --stacktrace --no-daemon
           echo "=== Looking for APK ==="
           find . -name "*.apk" -type f
 
