@@ -1,0 +1,104 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare www
+        run: |
+          set -e
+          if [ -f www/index.html ]; then
+            echo "Using www/ from repository"
+          elif [ -f skyline-hotel-game.zip ]; then
+            rm -rf www temp_extract
+            unzip -o skyline-hotel-game.zip -d temp_extract
+            if [ -d temp_extract/www ]; then
+              mv temp_extract/www ./www
+            else
+              mkdir -p www
+              if [ -f temp_extract/index.html ]; then
+                cp -r temp_extract/* www/
+              else
+                IDX=$(find temp_extract -name index.html | head -1)
+                if [ -z "$IDX" ]; then
+                  echo "No index.html in zip"
+                  find temp_extract -type f
+                  exit 1
+                fi
+                SRC=$(dirname "$IDX")
+                cp -r "$SRC"/* www/
+              fi
+            fi
+            rm -rf temp_extract
+          else
+            echo "Need www/index.html or skyline-hotel-game.zip"
+            ls -la
+            exit 1
+          fi
+          find www -type f | sort
+          test -f www/index.html
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-34 build-tools;34.0.0
+
+      - name: Create Capacitor project files
+        run: |
+          cat > package.json << 'PKG'
+          {
+            "name": "skyline-hotel",
+            "version": "1.0.0",
+            "private": true,
+            "dependencies": {
+              "@capacitor/android": "6.1.2",
+              "@capacitor/core": "6.1.2",
+              "@capacitor/cli": "6.1.2"
+            }
+          }
+          PKG
+          cat > capacitor.config.json << 'CFG'
+          {
+            "appId": "com.skyline.hotel",
+            "appName": "Skyline Hotel",
+            "webDir": "www"
+          }
+          CFG
+
+      - name: Install and sync Capacitor
+        run: |
+          npm install
+          npx cap add android
+          npx cap sync android
+
+      - name: Build debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkylineHotel-APK
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
